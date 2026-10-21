@@ -1,0 +1,40 @@
+name: Build PS Vita VPK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: vitasdk/vitasdk:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source assets
+        run: python3 tools/check_assets.py
+      - name: Download pinned miniaudio decoder
+        run: |
+          curl -fL --retry 3 --connect-timeout 20 https://raw.githubusercontent.com/mackron/miniaudio/0.11.23/miniaudio.h -o src/miniaudio.h
+          test -s src/miniaudio.h
+      - name: Compile VitaSDK project
+        run: |
+          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake"
+          cmake --build build --parallel 2
+      - name: Check VPK contents
+        run: |
+          test -s build/VitaMotionLabAlpha.vpk
+          python3 - <<'PY'
+          import zipfile
+          p='build/VitaMotionLabAlpha.vpk'
+          with zipfile.ZipFile(p) as z:
+              assert 'eboot.bin' in z.namelist()
+              for name in ('assets/scenes/blue_halo/base/sheet_000.png','assets/scenes/dual_sub/cabinet.png','assets/scenes/pulse_heart/body/sheet_005.png'):
+                  assert name in z.namelist(),name
+              print('VPK contains eboot and scene assets:',len(z.namelist()))
+          PY
+      - name: Upload compiled VPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vita-Motion-Lab-v1-Alpha-VPK
+          path: build/VitaMotionLabAlpha.vpk
+          if-no-files-found: error
